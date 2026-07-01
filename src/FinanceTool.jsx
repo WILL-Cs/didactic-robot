@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { searchStocks } from "./stocks";
-import { searchSymbols, fetchQuote } from "./stockApi";
+import { searchSymbols, fetchQuote, fetchRecommendations } from "./stockApi";
 
 // ─── PREFILLED DATA ───────────────────────────────────────────────────────────
 // Ce bloc est réécrit par Claude à chaque nouveau ticker demandé dans le chat.
@@ -343,6 +343,10 @@ export default function FinanceTool() {
   const [apiKey, setApiKey]       = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [priceLoading, setPriceLoading] = useState(false);
+  // [NEW] Consensus analystes en direct (Finnhub recommendation trends)
+  const [liveRecs, setLiveRecs] = useState(null);
+  const [liveRecsLoading, setLiveRecsLoading] = useState(false);
+  const [liveRecsError, setLiveRecsError] = useState("");
   const searchTimer = useRef(null);
 
   const storage = {
@@ -414,6 +418,7 @@ export default function FinanceTool() {
       try { const price = await fetchQuote(item.s, apiKey); if (price) setCurrentPrice(String(price)); }
       catch { /* ignore */ }
       setPriceLoading(false);
+      loadLiveRecs(item.s);
     }
   };
 
@@ -423,6 +428,19 @@ export default function FinanceTool() {
     try { const price = await fetchQuote(ticker.trim(), apiKey); if (price) setCurrentPrice(String(price)); }
     catch { /* ignore */ }
     setPriceLoading(false);
+  };
+
+  // [NEW] Récupère les recommandations analystes en direct (agrégées).
+  const loadLiveRecs = async (symbol) => {
+    const sym = String(symbol || ticker).trim();
+    if (!apiKey || !sym) return;
+    setLiveRecsLoading(true); setLiveRecsError("");
+    try {
+      const recs = await fetchRecommendations(sym, apiKey);
+      setLiveRecs(recs);
+      if (!recs) setLiveRecsError("Aucune donnée analyste disponible pour ce titre.");
+    } catch { setLiveRecsError("Impossible de récupérer les avis (clé invalide ou réseau)."); }
+    setLiveRecsLoading(false);
   };
 
   const saveApiKey = (k) => {
@@ -565,6 +583,23 @@ export default function FinanceTool() {
     ? ((analystConsensus.weightedAvgTarget - cpNum) / cpNum * 100).toFixed(1)
     : null;
 
+  // [NEW] Consensus dérivé des recommandations analystes en direct.
+  const recConsensus = (() => {
+    if (!liveRecs || !liveRecs[0]) return null;
+    const c = liveRecs[0];
+    const total = c.strongBuy + c.buy + c.hold + c.sell + c.strongSell;
+    if (!total) return null;
+    const score = (2 * c.strongBuy + c.buy - c.sell - 2 * c.strongSell) / total;
+    const label = score >= 1.2 ? "Strong Buy" : score >= 0.4 ? "Buy" : score >= -0.4 ? "Hold" : score >= -1.2 ? "Sell" : "Strong Sell";
+    let trend = 0;
+    if (liveRecs[1]) {
+      const p = liveRecs[1];
+      const pt = p.strongBuy + p.buy + p.hold + p.sell + p.strongSell;
+      if (pt) trend = score - (2 * p.strongBuy + p.buy - p.sell - 2 * p.strongSell) / pt;
+    }
+    return { c, total, score, label, trend, period: c.period };
+  })();
+
   const toggleCompare = (id) => setCompareIds(p => p.includes(id) ? p.filter(x => x !== id) : p.length < 4 ? [...p, id] : p);
 
   const exportText = () => {
@@ -690,6 +725,17 @@ export default function FinanceTool() {
     apiKeyHint: { fontSize: 10.5, color: "#475569", marginBottom: 8, lineHeight: 1.5 },
     apiKeyInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, color: "#f8fafc", padding: "8px 10px", fontSize: 12, flex: 1, outline: "none", minWidth: 0 },
     apiKeyClear: { background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 8, padding: "8px 12px", fontSize: 11.5, cursor: "pointer", flexShrink: 0 },
+    liveCard: { background: "rgba(52,211,153,.05)", border: "1px solid rgba(52,211,153,.18)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 },
+    liveHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+    liveTitle: { fontSize: 11, fontWeight: 800, letterSpacing: 0.5, color: "#34d399", textTransform: "uppercase" },
+    liveRefresh: { background: "transparent", border: `1px solid ${C.border}`, color: "#94a3b8", borderRadius: 7, padding: "3px 9px", fontSize: 10.5, fontWeight: 600, cursor: "pointer" },
+    liveBar: { display: "flex", height: 10, borderRadius: 5, overflow: "hidden", marginBottom: 8 },
+    liveSeg: (color, pct) => ({ width: `${pct}%`, background: color }),
+    liveLegend: { display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: 10.5, color: "#94a3b8" },
+    liveLegendItem: { display: "flex", alignItems: "center", gap: 5 },
+    liveDot: (color) => ({ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }),
+    liveMeta: { fontSize: 10, color: "#475569", marginTop: 8 },
+    liveBtn: { background: "#131720", border: `1px solid ${C.border}`, color: "#94a3b8", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 600, cursor: "pointer", width: "100%", marginBottom: 12 },
     // [NEW #1] Note éditable
     noteTextarea: { background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)", borderRadius: 8, color: "#94a3b8", padding: "8px 12px", fontSize: 11, width: "100%", boxSizing: "border-box", outline: "none", resize: "vertical", minHeight: 54, fontFamily: "'Inter',system-ui,sans-serif", lineHeight: 1.5, marginBottom: 12 },
     profileRow: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 },
@@ -947,6 +993,53 @@ export default function FinanceTool() {
           </div>
           {showAnalysts && (
             <div style={{ padding: "10px 0 16px" }}>
+              {/* [NEW] Consensus analystes EN DIRECT (Finnhub, gratuit) */}
+              {apiKey ? (
+                recConsensus ? (
+                  <div style={S.liveCard}>
+                    <div style={S.liveHead}>
+                      <span style={S.liveTitle}>● Consensus analystes en direct</span>
+                      <button style={S.liveRefresh} onClick={() => loadLiveRecs()}>{liveRecsLoading ? "…" : "↻ Actualiser"}</button>
+                    </div>
+                    <div style={S.consensusRow}>
+                      <span style={S.consensusLabel}>Recommandation ({recConsensus.total} analystes)</span>
+                      <span style={S.consensusValue(recConsensus.label)}>{recConsensus.label}</span>
+                    </div>
+                    {(() => {
+                      const c = recConsensus.c, t = recConsensus.total;
+                      const segs = [
+                        ["Strong Buy", c.strongBuy, "#34d399"],
+                        ["Buy", c.buy, "#a3e635"],
+                        ["Hold", c.hold, "#fbbf24"],
+                        ["Sell", c.sell, "#fb923c"],
+                        ["Strong Sell", c.strongSell, "#f87171"],
+                      ];
+                      return (<>
+                        <div style={{ ...S.liveBar, marginTop: 8 }}>
+                          {segs.map(([l, v, col]) => v > 0 && <div key={l} style={S.liveSeg(col, (v / t) * 100)} title={`${l}: ${v}`} />)}
+                        </div>
+                        <div style={S.liveLegend}>
+                          {segs.map(([l, v, col]) => (
+                            <span key={l} style={S.liveLegendItem}><span style={S.liveDot(col)} />{l} <strong style={{ color: "#cbd5e1" }}>{v}</strong></span>
+                          ))}
+                        </div>
+                      </>);
+                    })()}
+                    <div style={S.consensusRow} >
+                      <span style={{ ...S.consensusLabel, marginTop: 8 }}>Tendance vs mois précédent</span>
+                      <span style={{ fontWeight: 700, marginTop: 8, color: recConsensus.trend > 0.1 ? "#34d399" : recConsensus.trend < -0.1 ? "#f87171" : "#94a3b8" }}>
+                        {recConsensus.trend > 0.1 ? "↗ s'améliore" : recConsensus.trend < -0.1 ? "↘ se dégrade" : "→ stable"}
+                      </span>
+                    </div>
+                    <div style={S.liveMeta}>Source Finnhub · période {recConsensus.period} · mis à jour à la demande</div>
+                  </div>
+                ) : (
+                  <button style={S.liveBtn} onClick={() => loadLiveRecs()}>
+                    {liveRecsLoading ? "Chargement des avis analystes…" : liveRecsError || `📡 Charger les avis analystes en direct pour ${ticker || "ce titre"}`}
+                  </button>
+                )
+              ) : null}
+
               {analystConsensus && (
                 <div style={S.consensusCard}>
                   <div style={S.consensusRow}>
