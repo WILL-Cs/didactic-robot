@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { searchStocks } from "./stocks";
+import { searchSymbols, fetchQuote } from "./stockApi";
 
 // ─── PREFILLED DATA ───────────────────────────────────────────────────────────
 // Ce bloc est réécrit par Claude à chaque nouveau ticker demandé dans le chat.
@@ -28,6 +30,7 @@ const PREFILLED_ANALYSTS = [
   { id: 4, firm: "JPMorgan", rating: "Buy", target: "93", date: "2026-05-12", reputation: 5, outcome: "pending" },
 ];
 const STORAGE_KEY = "finance-tool-v3";
+const API_KEY_STORAGE = "finance-tool-finnhub-key";
 
 // ─── COMPANY PROFILES ─────────────────────────────────────────────────────────
 const PROFILES = {
@@ -333,6 +336,14 @@ export default function FinanceTool() {
   const [analysisNote, setAnalysisNote] = useState(PREFILLED_NOTE);
   // [NEW #2] Prix actuel pour calcul upside automatique
   const [currentPrice, setCurrentPrice] = useState(PREFILLED_CURRENT_PRICE);
+  // [NEW] Moteur de recherche d'actions (local + API optionnelle)
+  const [results, setResults]     = useState([]);
+  const [showResults, setShowResults] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [apiKey, setApiKey]       = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const searchTimer = useRef(null);
 
   const storage = {
     get: async (key) => {
@@ -350,6 +361,7 @@ export default function FinanceTool() {
       try { const r = await storage.get(STORAGE_KEY); if (r?.value) setHistory(JSON.parse(r.value)); }
       catch {}
     })();
+    try { const k = localStorage.getItem(API_KEY_STORAGE); if (k) setApiKey(k); } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -370,6 +382,54 @@ export default function FinanceTool() {
   const weightSum = Object.values(weights).reduce((s, v) => s + (v || 0), 0);
 
   const setVal = (key, v) => setValues(p => ({ ...p, [key]: v }));
+
+  // [NEW] Recherche : local instantané + API mondiale (debouncée) si clé fournie.
+  const onTickerChange = (v) => {
+    setTicker(v.toUpperCase());
+    const local = searchStocks(v, 8);
+    setResults(local);
+    setShowResults(v.trim().length > 0);
+    if (apiKey && v.trim().length >= 2) {
+      clearTimeout(searchTimer.current);
+      setSearching(true);
+      searchTimer.current = setTimeout(async () => {
+        try {
+          const remote = await searchSymbols(v, apiKey);
+          const seen = new Set(local.map(r => r.s));
+          setResults([...local, ...remote.filter(r => !seen.has(r.s))].slice(0, 12));
+        } catch { /* réseau/clé invalide : on garde le local */ }
+        setSearching(false);
+      }, 350);
+    } else {
+      setSearching(false);
+    }
+  };
+
+  const selectStock = async (item) => {
+    setTicker(item.s.toUpperCase());
+    setShowResults(false);
+    setResults([]);
+    if (apiKey) {
+      setPriceLoading(true);
+      try { const price = await fetchQuote(item.s, apiKey); if (price) setCurrentPrice(String(price)); }
+      catch { /* ignore */ }
+      setPriceLoading(false);
+    }
+  };
+
+  const refreshPrice = async () => {
+    if (!apiKey || !ticker.trim()) return;
+    setPriceLoading(true);
+    try { const price = await fetchQuote(ticker.trim(), apiKey); if (price) setCurrentPrice(String(price)); }
+    catch { /* ignore */ }
+    setPriceLoading(false);
+  };
+
+  const saveApiKey = (k) => {
+    setApiKey(k);
+    try { k ? localStorage.setItem(API_KEY_STORAGE, k) : localStorage.removeItem(API_KEY_STORAGE); }
+    catch { /* ignore */ }
+  };
 
   const applyProfile = (p) => { setProfile(p); setWeights(PROFILES[p].weights); };
 
@@ -610,11 +670,26 @@ export default function FinanceTool() {
     tabBar: { display: "flex", gap: 6, background: "#0e1117", borderRadius: 10, padding: 4, marginBottom: 16 },
     tab: (a) => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: "none", background: a ? "#1e2533" : "transparent", color: a ? C.text : C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }),
     // [NEW #2] Ligne ticker + prix actuel côte à côte
-    tickerRow: { display: "flex", gap: 8, marginBottom: 10, alignItems: "center" },
-    tickerInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, color: "#f8fafc", padding: "11px 14px", fontSize: 15, fontWeight: 700, flex: 1, boxSizing: "border-box", outline: "none", letterSpacing: 1 },
+    tickerRow: { display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-start" },
+    searchWrap: { position: "relative", flex: 1 },
+    tickerInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, color: "#f8fafc", padding: "11px 14px", fontSize: 15, fontWeight: 700, width: "100%", boxSizing: "border-box", outline: "none", letterSpacing: 1 },
+    dropdown: { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#0e1117", border: `1px solid ${C.border}`, borderRadius: 10, maxHeight: 280, overflowY: "auto", zIndex: 800, boxShadow: "0 10px 30px rgba(0,0,0,.5)" },
+    resultItem: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", borderBottom: `1px solid ${C.border}` },
+    resultSym: { fontSize: 12.5, fontWeight: 800, color: "#f8fafc", letterSpacing: 0.5 },
+    resultName: { fontSize: 11, color: "#94a3b8", marginLeft: 6 },
+    resultExch: { fontSize: 9.5, fontWeight: 700, color: C.muted, flexShrink: 0, whiteSpace: "nowrap" },
+    resultLive: { fontSize: 9, fontWeight: 800, color: "#34d399", background: "rgba(52,211,153,.12)", borderRadius: 4, padding: "1px 5px", marginLeft: 5 },
+    searchingRow: { padding: "8px 12px", fontSize: 11, color: C.muted, fontStyle: "italic" },
     priceWrap: { display: "flex", flexDirection: "column", gap: 2 },
+    priceLabelRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 4 },
     priceLabel: { fontSize: 9.5, color: C.muted, fontWeight: 700, letterSpacing: 0.5, textAlign: "center" },
-    priceInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, color: "#f8fafc", padding: "11px 10px", fontSize: 14, fontWeight: 700, width: 90, outline: "none", textAlign: "center" },
+    priceRefresh: { background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 },
+    priceInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, color: "#f8fafc", padding: "11px 10px", fontSize: 14, fontWeight: 700, width: 90, outline: "none", textAlign: "center", boxSizing: "border-box" },
+    apiKeyToggle: { background: "none", border: "none", color: C.dim, fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0, marginBottom: 10 },
+    apiKeyBox: { background: "rgba(96,165,250,.04)", border: `1px dashed ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 12 },
+    apiKeyHint: { fontSize: 10.5, color: "#475569", marginBottom: 8, lineHeight: 1.5 },
+    apiKeyInput: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, color: "#f8fafc", padding: "8px 10px", fontSize: 12, flex: 1, outline: "none", minWidth: 0 },
+    apiKeyClear: { background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 8, padding: "8px 12px", fontSize: 11.5, cursor: "pointer", flexShrink: 0 },
     // [NEW #1] Note éditable
     noteTextarea: { background: "rgba(96,165,250,.04)", border: "1px solid rgba(96,165,250,.12)", borderRadius: 8, color: "#94a3b8", padding: "8px 12px", fontSize: 11, width: "100%", boxSizing: "border-box", outline: "none", resize: "vertical", minHeight: 54, fontFamily: "'Inter',system-ui,sans-serif", lineHeight: 1.5, marginBottom: 12 },
     profileRow: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 },
@@ -764,7 +839,7 @@ export default function FinanceTool() {
   // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={S.root}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap'); input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;} input[type=number]{-moz-appearance:textfield;}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap'); input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;} input[type=number]{-moz-appearance:textfield;} .stock-result:hover{background:#161b28;} .stock-result:last-child{border-bottom:none;}`}</style>
 
       {/* [NEW #8] Toast confirmation enregistrement */}
       {saveToast && <div style={S.toast}>✓ Analyse enregistrée</div>}
@@ -790,14 +865,59 @@ export default function FinanceTool() {
 
         {/* ── ANALYSE TAB ── */}
         {tab === "analyse" && (<>
-          {/* [NEW #2] Ticker + prix actuel sur la même ligne */}
+          {/* [NEW] Recherche d'actions + prix actuel sur la même ligne */}
           <div style={S.tickerRow}>
-            <input style={S.tickerInput} placeholder="TICKER" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())} />
+            <div style={S.searchWrap}>
+              <input
+                style={S.tickerInput}
+                placeholder="Rechercher une action (nom ou ticker)…"
+                value={ticker}
+                onChange={e => onTickerChange(e.target.value)}
+                onFocus={() => { if (ticker.trim()) { setResults(searchStocks(ticker, 8)); setShowResults(true); } }}
+                onBlur={() => setTimeout(() => setShowResults(false), 150)}
+              />
+              {showResults && (results.length > 0 || searching) && (
+                <div style={S.dropdown}>
+                  {results.map(r => (
+                    <div key={r.s + (r.e || "")} className="stock-result" style={S.resultItem} onMouseDown={() => selectStock(r)}>
+                      <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={S.resultSym}>{r.s}</span>
+                        <span style={S.resultName}>{r.n}</span>
+                      </div>
+                      <span style={S.resultExch}>{r.e}{r.api && <span style={S.resultLive}>live</span>}</span>
+                    </div>
+                  ))}
+                  {searching && <div style={S.searchingRow}>Recherche mondiale…</div>}
+                </div>
+              )}
+            </div>
             <div style={S.priceWrap}>
-              <div style={S.priceLabel}>COURS ACTUEL</div>
+              <div style={S.priceLabelRow}>
+                <span style={S.priceLabel}>COURS ACTUEL</span>
+                {apiKey && ticker.trim() && (
+                  <button style={S.priceRefresh} onClick={refreshPrice} title="Rafraîchir le cours en direct">{priceLoading ? "…" : "↻"}</button>
+                )}
+              </div>
               <input type="number" style={S.priceInput} placeholder="ex: 173" value={currentPrice} onChange={e => setCurrentPrice(e.target.value)} />
             </div>
           </div>
+
+          {/* [NEW] Activation recherche mondiale + cours en direct (clé API optionnelle) */}
+          <button style={S.apiKeyToggle} onClick={() => setShowApiKey(v => !v)}>
+            {apiKey ? "🔑 Recherche mondiale + cours en direct activés" : "🌐 Activer la recherche mondiale + cours en direct (optionnel)"}
+          </button>
+          {showApiKey && (
+            <div style={S.apiKeyBox}>
+              <div style={S.apiKeyHint}>
+                Colle une clé API <strong>Finnhub</strong> gratuite (crée-la en 2 min sur finnhub.io/register).
+                Elle est stockée uniquement sur ton appareil. La recherche locale fonctionne sans clé, hors-ligne.
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input style={S.apiKeyInput} type="password" placeholder="Clé API Finnhub" value={apiKey} onChange={e => saveApiKey(e.target.value.trim())} />
+                {apiKey && <button style={S.apiKeyClear} onClick={() => saveApiKey("")}>Effacer</button>}
+              </div>
+            </div>
+          )}
 
           {/* [NEW #1] Note libre et éditable */}
           <textarea
