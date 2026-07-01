@@ -2,8 +2,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// GitHub Pages sert le site sous /<nom-du-repo>/.
+// Surchargeable via VITE_BASE (ex: "/" pour Netlify/Vercel à la racine).
+const base = process.env.VITE_BASE ?? '/didactic-robot/'
+
 // https://vite.dev/config/
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -18,8 +23,8 @@ export default defineConfig({
         background_color: '#090b10',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        start_url: base,
+        scope: base,
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -29,7 +34,7 @@ export default defineConfig({
       workbox: {
         // Met en cache l'app complète pour un usage 100% hors-ligne.
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
-        navigateFallback: '/index.html',
+        navigateFallback: base + 'index.html',
         runtimeCaching: [
           {
             // Cache la police Google Fonts pour qu'elle marche hors-ligne aussi.
