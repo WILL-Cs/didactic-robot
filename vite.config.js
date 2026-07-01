@@ -9,6 +9,9 @@ const base = process.env.VITE_BASE ?? '/didactic-robot/'
 // https://vite.dev/config/
 export default defineConfig({
   base,
+  // Le répertoire d'actions US (~6700 titres) est embarqué pour la recherche
+  // hors-ligne ; il gonfle le bundle mais reste mis en cache une seule fois.
+  build: { chunkSizeWarningLimit: 1200 },
   plugins: [
     react(),
     VitePWA({

@@ -1,8 +1,9 @@
-// Base d'actions locale pour la recherche hors-ligne (sans clé API).
-// Couvre les titres les plus courants : US large caps, tech/IA, énergie,
-// semi-conducteurs, proxies crypto, ETF, et principales valeurs européennes.
+import US_TICKERS from "./us-tickers.json";
+
+// Liste curée prioritaire : noms courts et lisibles + valeurs européennes
+// (absentes du répertoire US). Ces entrées passent devant en cas de doublon.
 // { s: symbole/ticker, n: nom, e: place }
-export const STOCKS = [
+const CURATED = [
   // ── US Tech / IA ──
   { s: "AAPL", n: "Apple", e: "NASDAQ" },
   { s: "MSFT", n: "Microsoft", e: "NASDAQ" },
@@ -160,6 +161,14 @@ export const STOCKS = [
   { s: "SHEL.L", n: "Shell", e: "London" },
   { s: "AZN.L", n: "AstraZeneca", e: "London" },
   { s: "HSBA.L", n: "HSBC Holdings", e: "London" },
+];
+
+// Fusion : liste cur\u00e9e d'abord (noms propres + Europe), puis tout le r\u00e9pertoire
+// US (~6700 titres), en \u00e9vitant les doublons de symbole.
+const _seen = new Set(CURATED.map((x) => x.s.toUpperCase()));
+export const STOCKS = [
+  ...CURATED,
+  ...US_TICKERS.filter((x) => !_seen.has(x.s.toUpperCase())),
 ];
 
 const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
