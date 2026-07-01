@@ -1,16 +1,45 @@
-# React + Vite
+# Analyse Financière — appli perso (PWA)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Outil personnel d'aide à la décision boursière : « investir ou attendre » et
+détection de potentiel de croissance. Tes données restent **en local sur ton
+appareil** (aucun serveur, aucun compte).
 
-Currently, two official plugins are available:
+C'est une **PWA** : tu peux l'installer sur ton téléphone et ton ordinateur, et
+elle fonctionne **hors-ligne**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Lancer en local
 
-## React Compiler
+```bash
+npm install
+npm run dev      # développement (http://localhost:5173)
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Build + utilisation comme appli
 
-## Expanding the Oxlint configuration
+```bash
+npm run build    # génère dist/ (app + service worker + manifest)
+npm run preview  # sert le build en local pour tester l'install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+### Installer sur ton appareil
+
+Une fois l'app ouverte dans le navigateur :
+
+- **Android / Chrome / Edge (bureau)** : un bandeau « Installer » apparaît en
+  bas, ou via le menu ⋮ → « Installer l'application ».
+- **iPhone / iPad (Safari)** : bouton **Partager** ⬆️ → **« Sur l'écran
+  d'accueil »**.
+
+Pour l'utiliser depuis ton téléphone, héberge le dossier `dist/` sur n'importe
+quel hébergement statique gratuit (Netlify, Vercel, GitHub Pages, Cloudflare
+Pages…) — l'installation PWA nécessite HTTPS.
+
+## Régénérer les icônes
+
+```bash
+node scripts/gen-icons.mjs
+```
+
+---
+
+Ceci n'est pas un conseil financier — outil indicatif à usage personnel.
